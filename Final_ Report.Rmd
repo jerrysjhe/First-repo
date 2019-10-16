@@ -1,0 +1,470 @@
+---
+title: "FIFA 2017"
+author: Shijie He(she19), Rui Liu(ruil4), Yuankai Xu(xu81), Congwei Yang(congwei2),
+  Yuquan Zheng(yzheng58)
+date: "5/4/2019"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    theme: simplex
+    toc: yes
+---
+
+```{r echo=FALSE}
+knitr:: opts_chunk$set(cache=TRUE)
+```
+
+***
+
+```{r,echo=FALSE}
+setwd("~/Desktop/STAT432/final project")
+data = read.csv("FullData.csv")
+```
+
+#Job Distribution
+
+Shijie He: Model design, presentatin slide design, coding, final report writing. 
+
+Rui Liu: Presentation slide design, coding, group meeting organization, final report writing. 
+
+Yuankai Xu: Presentation slide design, presenter, coding, final report writing. 
+
+Congwei Yang: Presentation slide design, presenter, coding, final report writing. 
+
+Yuquan Zheng: Presentation slide design, work submission, coding, final report writing. 
+
+
+# **Introduction and Literature Review**
+
+## Introduction
+
+[Online FIFA 2017 Dataset](https://www.kaggle.com/artimous/complete-fifa-2017-player-dataset-global/version/5#NationalNames.csv)
+
+The dataset we used  is the Complete FIFA 2017 Player dataset (Global) from Kaggle. A big fan of FIFA named Tdata firstly scraped it from https://www.fifaindex.com/  by getting player profile url set (as stored in PlayerNames.csv) and then scraping the individual pages for their attributes.
+
+The dataset has 53 **variables** and 17588 **observations**. It consists of mainly integers, but also with some categorical variables. The dataset summarizes the players' performance in different aspects and their overall rating in FIFA17 game. Our initial **goal** is to build a **player rating model** based on the data. Besides, we also want to construct a model to **predict** the position for a player, which could also be a position recommendation model for teams and clubs.
+
+```{r}
+dim(data)
+```
+
+We used several methods introduced in the lectures, which include PCA, clustering, linear regression, ridge regression, neural network and KNN. To predict the overall rating, we used PCA to reduce the dimensions and then performed clustering on the data. For each cluster, we used regression analysis to generate the best predicting model. For the part of predicting the position, we tried two methods, kNN and neural network, and picked the one with better performance.  
+
+## Literature Review
+
+[Report From Rupav Jain, 2017](https://www.kaggle.com/rupavj/fifa-17-detailed-analysis)
+
+Since this dataset is open to public on Kaggle, there are many other analyses based on it. However, we can hardly find any relative analyses regarding the topics we are interested in. Most of the analyses on Kaggle are simple linear regression analysis and in lack of classification and other statistical methods. One project we can find similar is FIFA 17 detailed analysis, in which the topics about correlation using heatmap, regression model on rating, players' preferred positions and knn are explored. 
+ 
+***
+
+# **Data Description and Manipulation**
+
+## Raw Data Description
+
+The dataset is the Complete [FIFA 2017 Player dataset (Global)](https://www.kaggle.com/artimous/complete-fifa-2017-player-dataset-global/version/5#NationalNames.csv). It contains 53 **variables** and 17588 **observations**. The data summarizes the FIFA 2017 game data for all player cards in the game. The variables can be categorized into two types: 
+
+* Player information:`Name`, `Nationality`, `National_Kit`, `Club, Club_Kit`, `Club_Joining`, `Contract_Expiry`, `Birth_Date`.  
+
+* Other Game data: `Rating`, `Height`, `Weight`, `Age`, `Weak_foot`, `Skill_Moves`, `Ball_Control`, `Dribbling, Marking`, `Sliding_Tackle`, `Standing_Tackle`, `Aggression`, `Reactions`, `Attacking_Position`, `Interceptions`, `Vision`, `Composure`, `Crossing`, `Short_Pass`, `Long_Pass`, `Acceleration`, `Speed, Stamina`, `Strength`, `Balance`, `Agility`, `Jumping`, `Heading`, `Shot_Power`, `Finishing`, `Long_Shots`, `Curve`, `Freekick_Accuracy`, `Penalties Volleys`, `GK_Positioning`, `GK_Diving`, `GK_Kicking`, `GK_Handling`, `GK_Reflexes`. 
+
+_**The details of variables can be found in appendix.**_
+
+
+## Data Cleaning 
+
+**Step1:** Remove all irrelevant variables. Most of them are categorical. 
+    
+**Step2:** We replace the Left/Right with 0/1 for variable `Preferred_Foot` and include it into our model. 
+
+**Step3:** Remove the unit and convert the variable type into numerical. 
+
+**Step4:** Create a new data column `position` by categorize players into Forwarder, Midfielder, Defender and Goalkeeper. This data column is for the knn model. 
+
+     
+**Final cleaned data** The cleaned data contains 17588 observations and 40 independent variables and 2 respond variables for each task.
+
+```{r, echo=FALSE}
+A=substr(data$Preffered_Position, 1, 3)
+L=unique(A)
+F=c(L[1], L[2], L[3], L[4], L[9], L[15], L[25])
+M=c(L[7], L[8], L[10], L[12], L[13],L[18], L[21], L[22])
+B=c(L[6], L[11], L[14],  L[16], L[17], L[19], L[20], L[23], L[24])
+G=c(L[5])
+
+class=function(X){
+  if (X %in% F){
+    return (1)
+  }
+  if (X %in% M){
+    return (2)
+  }
+  if (X %in% B){
+    return (3)
+  }
+  if (X %in% G){
+    return (4)
+  }
+}
+position=c()
+for (i in 1:length(A)){
+  N=class(A[i])
+  position=c(position, N)
+}
+
+rating = data$Rating
+data = data[,c(-1,-2,-3,-4,-5,-6,-7,-8,-9,-10,-14,-16,-17)]
+data$Height = as.numeric(substr(data$Height,1,3))
+data$Weight = as.numeric(substr(data$Weight,1,2))
+data$Preffered_Foot = as.numeric(data$Preffered_Foot=="Right")
+```
+
+```{r}
+dim(data)
+```
+
+## Data Visualization
+
+We use boxplot to generate an overview of the data. 
+
+```{r}
+boxplot(data)
+```
+
+We expect the data to contain multicollinearity. Thus, we produced a correlation plot to visualize collinearity between variables. 
+
+```{r,warning=FALSE}
+library(corrplot)
+M=cor(data)
+corrplot(M, method="circle", tl.cex=0.5)
+```
+
+## Data Subsetting
+
+
+**Train-test Split**
+
+For the classification models, we need to split the data into training and testing data. We decided to use 80% of our data as training and 20% as testing. 
+
+```{r}
+data_pos = data.frame(data,"Rating" = rating, "position" = position)
+n_obs = dim(data)[1]
+training_size = floor(n_obs * 0.8)
+testing_size = n_obs - training_size
+training_ind = sample(n_obs, size=training_size)
+train_set = data[training_ind, ]
+test_set = data[-training_ind,]
+y_train = data_pos$position[training_ind]
+y_test = data_pos$position[-training_ind]
+dim(train_set)
+dim(test_set)
+```
+
+***
+
+# **Statistical Learning Methodology**
+
+## Methods Used
+
+* **Priciple Component Analysis**: We decided use PCA to reduce the dimension of our data, but the correlation plot also indicates multicollinearity. 
+
+* **Clustering**:The regular field players and goalkeepers could have quite different data features, thus we divide them into two clusters. 
+
+* **Linear Model**: Linear regression is a linear approach to modelling the relationship between a scalar response (or dependent variable) and one or more explanatory variables (or independent variables). The linear regression model is:$Y=\beta_0+\sum_{j=1}^{p}X_{j}\beta_{j}+\epsilon$. 
+
+* **Ridge Regression**: Ridge Regression is a technique for analyzing multiple regression data that suffer from multicollinearity. When multicollinearity occurs, least squares estimates are unbiased, but their variances are large so they may be far from the true value.
+    
+    + Penalizing the square of the coefficients:${\hat{\beta}}^{ridge}=\underset{\beta}{\operatorname{argmin}}||y-X\beta||^2+\lambda||\beta||^2$
+      
+    + tuning parameter: lambda is the tuning parameter (penalty level) that controls the amount of shrinkage.
+      
+    + penalizing the $l_2$ norm of $\beta$, hence is called the $l_2$ penalty
+      
+    + the coefficients $\beta_ridge$ are shrunken towards 0
+    
+    + GCV(generalization cross-validation):$GCV(\lambda)=\frac{n^{-1}||(I-S_{\lambda})y||^2}{(n^{-1}Trace(I-S_\lambda))^2}$
+      
+    + GCV is an easier way to tune the penalty term lambda in a ridge regression. It's similar to linear regression, having some nice properties.
+      
+    + GCV is motivated from the leave-one-out cross-validation.
+
+* **K Nearest Neighbor**: a non-parametric statistical method used for classification and regression. In both cases, the input consists of the k closest training examples in the feature space. All of the objects are classified by k votes from its neighbors and the neighbors is determined by Euclidean distance.
+
+* **Neural Network**: Neural network is a framework that deal with complicated inputs. It can deal with either continuous and categorcal respond variable. In our project, we have multiple classes for the respond variable. Thus, we chose the typical deep learning model for multiple classification and tuned the hyper-parameters to get the best model. 
+
+## Predicting the overall rating
+
+### PCA
+
+The correlation plot indicates that some variables indeed have strong collinearity, the PCA would be necessary. 
+
+Now we perform principle component analysis to the data. 
+
+```{r}
+pcafit = princomp(data)
+plot(pcafit$scores[,1], pcafit$scores[,2], xlab = "First PC", ylab = "Second PC", pch = 19, cex.lab = 1.5)
+data_pca = data.frame("first" = pcafit$scores[,1], "second" = pcafit$scores[,2])
+plot(pcafit$sdev)
+```
+
+```{r,echo=FALSE}
+data_new = data.frame(pcafit$scores[,1])
+for (i in 2:7){
+  data_new = cbind(data_new,pcafit$scores[,i])
+}
+data_new = cbind(data_new, rating)
+data_new = cbind(data_new,position)
+
+colnames(data_new) = c("Comp 1", "Comp 2", "Comp 3", "Comp 4", "Comp 5", "Comp 6", "Comp 7", "Rating", "position")
+```
+
+### Clustering
+
+For the regression model, We did a k-mean clustering to divide the data into two clusters: field players and goalkeepers considering the in-game data will vary greatly for the two clusters (red and black in the previous plot). 
+
+```{r}
+clu = kmeans(data_pca, centers=2)
+a = (clu$cluster==2)
+plot(data_new$`Comp 1`, data_new$`Comp 2`, xlab = "First PC", ylab = "Second PC", pch = 19, cex.lab = 1.5, col = clu$cluster)
+```
+
+```{r,echo=FALSE}
+data_1 = data_new[clu$cluster==2,]
+data_2 = data_new[clu$cluster==1,]
+```
+
+### Regression in Cluster 1 (Non-goalkeeper)
+
+**Ridge Regression**
+We first use ridge regression to check if there is any collinearity between our response and variables. Hence, we print the plot of generalized cross-validation to find the smallest lamda.
+
+From the plot, we could see that the optimal lambda is 4. Therefore, we conclude that the coefficients are not penalized, and there is no collinearity between these variables. 
+
+```{r}
+library(MASS)
+fit_1 = lm.ridge(Rating~. - position, data = data_1, lambda=seq(0,100,by=0.1))
+
+plot(fit_1$lambda[1:500], fit_1$GCV[1:500], type = "l", col = "darkorange", 
+         ylab = "GCV", xlab = "Lambda", lwd = 3)
+title("Non-Goadkeeper: GCV")
+fit_1$lambda[which.min(fit_1$GCV)]
+round(coef(fit_1)[which.min(fit_1$GCV), ], 4)
+```
+
+**Linear Regression**
+We use PCA to find that there is no collinearity between the response and variables and we also use ridge regression to double check the conclusion. Hence, we could use linear regression to predict the response Rating.
+
+```{r}
+fit_1_lin = lm(Rating~. - position, data = data_1)
+par(mfrow=c(2,2))
+plot(fit_1_lin)
+summary(fit_1_lin)
+```
+
+According to the plot, the residual_fitted plot is roughly flat and seems equal variance and all variables roughly vertically symmetric. The normal QQ plot is roughly a line and the scale-location is roughly a flat line. We find that none of the assumptions is violated, all variables are significant and the R_squared is 0.755.
+
+**Discussion of Cluster One**
+We also compare the coefficients of ridge regression and linear regression, and we find there is no obvious difference between them. Hence, there is no need to do ridge regression, and we can do Least square linear regression instead. 
+
+### Regression in Cluster 2 (Goalkeeper)
+
+**Ridge Regression**
+We first use ridge regression to check if there is any collinearity between our response and variables. Hence, we print the plot of generalized cross-validation to find the smallest lamda.
+
+```{r}
+library(MASS)
+par(mfrow=c(1,1))
+fit_2 = lm.ridge(Rating~. - position, data = data_2, lambda=seq(0,100,by=0.1))
+
+plot(fit_2$lambda[1:500], fit_2$GCV[1:500], type = "l", col = "darkorange", 
+         ylab = "GCV", xlab = "Lambda", lwd = 3)
+title("Goalkeeper: GCV")
+fit_2$lambda[which.min(fit_2$GCV)]
+round(coef(fit_2)[which.min(fit_2$GCV), ], 4)
+```
+
+From the plot, we could see that the optimal lambda is 0.2. Therefore, we conclude that the coefficients are not penalized, and there is no collinearity between these variables. 
+
+
+**Linaer Regression**
+We use PCA to find that there is no collinearity between the response and variables and we also use ridge regression to double check the conclusion. Hence, we could use linear regression to predict the response Rating. 
+
+```{r}
+fit_2_lin = lm(Rating~. - position, data = data_2)
+par(mfrow=c(2,2))
+plot(fit_2_lin)
+summary(fit_2_lin)
+```
+
+According to the plot, the residual_fitted plot is roughly flat and seems equal variance and all variables roughly vertically symmetric. The normal QQ plot is roughly a line and the scale-location is roughly a flat line. We find that none of the assumptions is violated, all variables are significant and the R_squared is 0.971.
+
+**Discussion of Cluster Two**
+
+We also compare the coefficients of ridge regression and linear regression, and we find there is no obvious difference between them. Hence, there is no need to do ridge regression, and we can do Least square linear regression instead.
+
+## Predicting the position of players
+
+We first use the first two principle components to visualize the groups of the data.
+
+```{r}
+plot(data_new$`Comp 1`, data_new$`Comp 2`, xlab = "First PC", ylab = "Second PC", pch = 19, cex.lab = 1.5, col = data_pos$position)
+```
+
+### kNN
+
+In this project, the tuning parameters (number of neighbors) are selected from the range k = (1,40) with step = 1, and k = 50, 60, 70, 80, 90, 100, 110,120. From the plot we can see that the trend decreased at first and maintained stable after k = 20. The reason is that from the PCA clustering, the data points is highly aggregated. Therefore, as the neighbor group is large enough, the accuracy will not be affected a lot. In the end, we use lambda = 50 as our optimal lambda with the smallest RMSE.
+
+```{r, eval=FALSE, echo=FALSE}
+# Taking too long, not run
+library(caret)
+set.seed(432)
+cv_5 = trainControl(method = "cv", number = 5)
+shares_knn_scale_one = train(
+  position ~ .-Rating,
+  data = data_pos,
+  method = "knn",
+  trControl = cv_5,
+  preProcess = c("center", "scale"),
+  tuneGrid = expand.grid(k = c(seq(1, 40, by = 1),50,60,70,80,90,100,110,120))
+)
+plot(shares_knn_scale_one)
+```
+
+```{r, warning = FALSE}
+library(DMwR)
+nn50 = kNN(position ~ .-Rating, train = data_pos[training_ind,], data_pos[-training_ind,], k = 50)
+(t = table(y_test,nn50))
+
+sum(diag(t))/sum(t)
+```
+
+### Neural Network
+
+We use typical multiple classification model to fit this problem. The input layer has 40 units since we have 40 variables in total. We used two hidden layers, one with 64 units and "ReLU" activation function and the other with 32 units and "ReLU" activation function. The output layer uses "softmax" as its activation function. We set the epoches to be 20 since it becomes flat after about 15 epoches. 
+
+```{r}
+library(keras)
+k_clear_session()
+model <- keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu", input_shape = c(40)) %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = 5, activation = "softmax")
+
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history <- model %>% fit(
+  as.matrix(train_set),
+  as.matrix(to_categorical(y_train)),
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(as.matrix(test_set),as.matrix(to_categorical(y_test)))
+)
+
+plot(history)
+```
+
+# **Conclusion**
+
+## Scientific Findings Summary
+
+Our project is mainly separated into two parts - the simulating rating system and the position classification analysis.
+
+For the rating system, we tried to find a model that can predicts players' overall ratings. We applied linear regression model and ridged regression. Based on the distribution of the target variable, we used PCA to divide our observations into two groups: "Goalkeepers"" and "other players".
+
+In both groups, the ridge regression seems to be unnecessary because the lambda from cross validation is pretty small. This can be also explained by the result of PCA. Since PCA generates new variables that combine some relative variables, there are no sign of collinearity after using PCA. Also, the diagnostic plots performs very well. There are no influential points and no assumption is violated. As for results, the R-squared value for Goalkeepers group reaches 0.971.  
+
+For position classifications, we tried to find a model to classify different players into their best positions with the information from the dataset. We used PCA to divide observations into four groups: "Forward"", "Mid-fielder"", "Defender"" and "Goalkeeper". We used k-NN and neural network to construct two different models and did a comparison. The kNN model gives us a really interesting fact that the RMSE actually stabilizes when the tuning parameter k is larger than 30. Due to the computational power limit, we decided to use k = 50 in our model. Actually, we also tried larger k but the accuracy improvement is negligible.(Neural-Network explaination here). 
+
+For the comparison, the neural network model has accuracy 0.93 and kNN model has accuracy 0.88, obviously the neural network method is better. 
+
+
+## Challenges
+
+1.Clusters will overlap or have vague boundaries.
+
+2.The fitness of linear model is susceptible. 
+
+3.GCV for kNN model may have long run time.
+
+
+## Possible Improvements
+
+The rating regression model has an overall good fit, but we would like to build a more general rating system for players. We can further categorize the players into excellent, good and average players and use classification models to build a alternative rating system. 
+
+We can replace the kNN model with kernel method. 
+
+
+***
+
+# **Reference**
+
+Ridge Regression (n.d.). Retrieved from https://ncss-wpengine.netdna-ssl.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Ridge_Regression.pdf
+
+Linear Regression (n.d.). Retrieved from
+https://en.wikipedia.org/wiki/Linear_regression
+
+
+***
+
+# **Appendix**
+|Name|Data Type|Description|
+|-----------|---------|---------------------------------------------------|
+|Numbers|Player information|Number of players|
+|Nationality|Player information|Nationality of a player|
+|Name|Player information|Name of a player|
+|National_Kit|Player information|Player's kit' number in his national team|
+|Club|Player information|Player's club name|
+|Club_Kit|Player information|Player's kit number in the club|
+|Club_Joining|Player information|The time a player enter a club|
+|Contract_Expiry|Player information|The time a player's contract expire|
+|Birth_Date|Player information|Player's birthday|
+|National_Position|Non-numerical Game data|Position on the court for a player in his national team|
+|Club_Position|Non-numerical Game data|Position on the court in the club|
+|Preffered_Foot|Non-numerical Game data|Player's preferred foot|
+|Preffered_Position|Non-numerical Game data|Player's preferred position|
+|Work_Rate|Non-numerical Game data|Measure of running distance for a player (High/Medium/Low)|
+|Rating|Numerical Game data|Player's overall rating|
+|Height|Numerical Game data|Player's height|
+|Weight|Numerical Game data|Player's weight|
+|Work_Rate|Numerical Game data|Measure of running distance for a player (High/Medium/Low)|
+|Weak_foot|Numerical Game data|Player's weak foot rate|
+|Skill_Moves|Numerical Game data|Player's skill move rate|
+|Ball_Control|Numerical Game data|Player's ball handling ability rate|
+|Dribbling|Numerical Game data|Player's dribbling rate|
+|Marking|Numerical Game data|Player's marking rate (measure of defensive positioning)|
+|Sliding_Tackle|Numerical Game data|Player's sliding tackle rate|
+|Standing_Tackle|Numerical Game data|Player's standing tackle rate|
+|Aggression|Numerical Game data|Player's aggression rate|
+|Reactions|Numerical Game data|Player's reaction rate|
+|Attacking_Position|Numerical Game data|Player's attacking position rate|
+|Interceptions|Numerical Game data|Player's interception rate|
+|Vision|Numerical Game data|Player's vision rate|
+|Composure|Numerical Game data|Player's composure rate|
+|Crossing|Numerical Game data|Player's crossing rate|
+|Short_Pass|Numerical Game data|Player's short passing rate|
+|Long_Pass|Numerical Game data|Player's long passing rate|
+|Acceleration|Numerical Game data|Player's acceleration rate|
+|Speed|Numerical Game data|Player's speed rate|
+|Stamina|Numerical Game data|Player's stamina rate|
+|Strength|Numerical Game data|Player's strength rate|
+|Balance|Numerical Game data|Player's balance rate|
+|Agility|Numerical Game data|Player's agility rate|
+|Jumping|Numerical Game data|Player's jumping rate|
+|Heading|Numerical Game data|Player's heading rate|
+|Shot_Power|Numerical Game data|Player's shot power rate|
+|Finishing|Numerical Game data|Player's finishing rate|
+|Long_Shots|Numerical Game data|Player's long shot rate|
+|Curve|Numerical Game data|Player's curving ball rate|
+|Freekick_Accuracy|Numerical Game data|Player's free kick accuracy rate|
+|Penalties Volleys|Numerical Game data|Player's penalty rate| 
+|GK_Positioning|Numerical Game data|Goalkeeper's position rate| 
+|GK_Diving|Numerical Game data|Goalkeeper diving rate|
+|GK_Kicking|Numerical Game data|Goalkeeper's kicking rate|
+|GK_Handling|Numerical Game data|Goalkeeper's handling rate|
+|GK_Reflexes:|Numerical Game data|Goalkeeper's successful reflexing rate|
+***
