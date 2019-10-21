@@ -24,7 +24,7 @@ data = read.csv("FullData.csv")
 
 #Job Distribution
 
-Shijie He: Model design, presentatin slide design, coding, final report writing. 
+Shijie He: Model design, presentatin slide design, coding, final report writing. sss
 
 Rui Liu: Presentation slide design, coding, group meeting organization, final report writing. 
 
